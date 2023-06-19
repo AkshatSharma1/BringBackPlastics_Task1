@@ -1,27 +1,22 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const otcsv = require('objects-to-csv' )
+const otcsv = require('objects-to-csv');
 
-//Url from which we have to scrape data
+// Base URL for scraping
 const baseUrl = 'https://www.nobroker.in/flats-for-sale-in-koramangala_bangalore';
+const infiniteUrl = 'https://www.nobroker.in/api/v3/multi/property/BUY/filter'
 
-//An array(list) of objects which will contain Url, Area and Age
-let propertyObjects = [];
-
+// Function to trim the extracted values
 function trimValue(str) {
   const index = str.indexOf(' ');
   const extractedValue = str.substr(0, index).trim();
   return extractedValue;
 }
 
-// Function which will extract age of property and area of property from the unique property link
+// Function to extract data from the property URL
 async function processData(url) {
   try {
-
-    //get the data 
     const { data } = await axios.get(url);
-
-    //making a cheerio function
     const $ = cheerio.load(data);
 
     let builtupArea = $('.nb__3ocPe:contains("Builtup Area") .nb__2xbus').text();
@@ -42,8 +37,8 @@ async function processData(url) {
   }
 }
 
-//Functiont to get links of all properties - 25 links
-function getPropertyLinks($, allProperties) {
+// Function to get property links from the current page
+async function getPropertyLinks($, allProperties) {
   const propertyLinks = [];
   allProperties.each((idx, element) => {
     const eachArticle = $(element);
@@ -54,57 +49,50 @@ function getPropertyLinks($, allProperties) {
   return propertyLinks;
 }
 
-//Function to map a cheerio function to all article tags
+// Function for infinite scrolling
 async function scrapingScript() {
   try {
     const { data } = await axios.get(baseUrl);
     const $ = cheerio.load(data);
     const allProperties = $("article");
-    const links = getPropertyLinks($, allProperties);
-    return links;
+    let propertyLinks = await getPropertyLinks($, allProperties);
+
+    // const totalPages = Math.ceil(total_count / countPerPage);
+    const totalPages = 4
+    let currentPage = 2; // Start from the second page since the first page is already loaded
+
+    while (currentPage <= totalPages) {
+      const nextPageUrl = `${infiniteUrl}?pageNo=${currentPage}&searchParam=W3sibGF0IjoxMi45MzUxOTI5LCJsb24iOjc3LjYyNDQ4MDY5OTk5OTk5LCJwbGFjZUlkIjoiQ2hJSkxmeVkyRTRVcmpzUlZxNEFqSTd6Z1JZIiwicGxhY2VOYW1lIjoiS29yYW1hbmdhbGEiLCJzaG93TWFwIjpmYWxzZX1d&propType=AP&city=bangalore`;
+      const infiniteScrollData = await axios.get(nextPageUrl);
+      const customLink = 'https://www.nobroker.in'
+      const infiniteScrollDataObj = infiniteScrollData['data']['data']
+      const extractedValues = infiniteScrollDataObj.map(obj => customLink + obj['detailUrl']);
+
+      propertyLinks = propertyLinks.concat(extractedValues);
+      propertyLinks = [... new Set(propertyLinks)]
+      
+      currentPage++;
+    }
+    console.log(propertyLinks)
+    console.log(propertyLinks.length)
+    return propertyLinks;
   } catch (err) {
     console.log(err);
   }
 }
 
-//Using normal await 
-
-/*
+// Main function
 async function main() {
   try {
     const propLinks = await scrapingScript();
-    for (let i = 0; i < propLinks.length; i++) {
-      const propertyData = await processData(propLinks[i]);
-      propertyObjects.push(propertyData);
-    }
-    // console.log(propertyObjects);
+    const propertyPromises = propLinks.map(processData);
+    const propertyObjects = await Promise.all(propertyPromises);
 
-    //converting list of objects to a csv file using Objects-to-csv library
-    const csv = new otcsv(propertyObjects)
-    await csv.toDisk('./scrappedData.csv')
-
+    const csv = new otcsv(propertyObjects);
+    await csv.toDisk('./scrappedData.csv');
   } catch (err) {
     console.log(err);
   }
 }
-*/
-
-// Using Promise.All - optimised performance
-async function main() {
-    try {
-      const propLinks = await scrapingScript();
-      //propLinks.map(processData) creates an array of promises by mapping each propLinks element to the processData function. 
-      const propertyPromises = propLinks.map(processData);
-      //Promise.all takes an array of promises and returns a new promise
-      const propertyObjects = await Promise.all(propertyPromises);
-  
-      //List of objects is converted into a csv file
-      const csv = new otcsv(propertyObjects);
-      await csv.toDisk('./scrappedData1.csv');
-    } catch (err) {
-      console.log(err);
-    }
-  }
 
 main();
-
